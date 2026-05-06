@@ -39,6 +39,15 @@ function saveDb(db) {
 
 // ---- Serve the verify website ----
 app.use(express.static(path.join(__dirname, 'website')));
+app.use(express.static(path.join(process.cwd(), 'website')));
+
+app.get('/', (req, res) => {
+  const p1 = path.join(__dirname, 'website', 'index.html');
+  const p2 = path.join(process.cwd(), 'website', 'index.html');
+  if (fs.existsSync(p1)) return res.sendFile(p1);
+  if (fs.existsSync(p2)) return res.sendFile(p2);
+  res.send('website folder not found - looked in: ' + p1 + ' and ' + p2);
+});
 
 // ---- Step 1: redirect to Discord OAuth ----
 app.get('/auth', (req, res) => {
