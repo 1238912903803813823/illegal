@@ -4,7 +4,7 @@
   "description": "Discord bot that finds your newest personal ping in a channel.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "npm install && node index.js",
     "start:auth": "node auth-server.js",
     "dev": "nodemon index.js",
     "dev:auth": "nodemon auth-server.js"
