@@ -1,7 +1,14 @@
-try { require('./auth-server.js'); } catch(e) { console.error('[Auth Server Failed]', e.message); }
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const fs = require('fs');
 
+// --- Load .env manually ---
+try {
+  const envFile = fs.readFileSync('.env', 'utf-8');
+  const tokenLine = envFile.split('\n').find(l => l.startsWith('DISCORD_TOKEN='));
+  if (tokenLine) process.env.DISCORD_TOKEN = tokenLine.split('=')[1].trim();
+} catch (e) {
+  console.error('Could not read .env file:', e.message);
+}
 
 // --- Auth config ---
 // Set these in your .env file
@@ -14,8 +21,9 @@ const OAUTH_URL = process.env.AUTH_SERVER_URL ? process.env.AUTH_SERVER_URL + '/
 const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '';
 
 
-const CONFIG_FILE = (process.env.RAILWAY_ENVIRONMENT || process.env.RENDER) ? '/tmp/config.json' : './config.json';
-function loadConfig() {
+
+// --- Config ---
+const CONFIG_FILE = './config.json';
   if (!fs.existsSync(CONFIG_FILE)) {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify({ prefixes: {}, managers: {} }, null, 2));
   }
@@ -207,7 +215,7 @@ client.on('messageCreate', async (message) => {
       return message.reply('Invalid prefix. Choose one of: ' + VALID_PREFIXES.map(p => '`' + p + '`').join(', '));
     }
     setPrefix(message.guild.id, newPrefix);
-    return message.reply('Prefix updated to `' + newPrefix + '`. Use `' + newPrefix + 'prefix <symbol>` to change it again.');
+    return message.reply('prefix changed to `' + newPrefix + '`.');
   }
 
   // manager cmd - server owner only
@@ -230,8 +238,21 @@ client.on('messageCreate', async (message) => {
     }
     if (sub === 'list') {
       const managers = getManagers(message.guild.id);
-      if (managers.length === 0) return message.reply('No managers set. Add one with `' + prefix + 'manager add @user`');
-      return message.reply('Current managers:\n' + managers.map(id => '<@' + id + '>').join('\n'));
+      if (managers.length === 0) return message.reply('no managers set.');
+      const lines = [];
+      for (const id of managers) {
+        let username = 'Unknown';
+        try {
+          const member = await message.guild.members.fetch(id).catch(() => null);
+          if (member) username = member.user.username;
+          else {
+            const user = await client.users.fetch(id).catch(() => null);
+            if (user) username = user.username;
+          }
+        } catch (e) {}
+        lines.push(id + ' - ' + username);
+      }
+      return message.reply(lines.join('\n'));
     }
     return message.reply(
       'Manager commands:\n' +
@@ -974,47 +995,7 @@ async function handleFindPing(ctx, target, isSlash) {
 
 // --- Help ---
 async function sendHelp(ctx, prefix) {
-  const embed = new EmbedBuilder()
-    .setColor(EMBED_COLOR)
-    .setDescription(
-      '**A bot still in progress, locates newest pings & multi purpose soon.**\n' +
-      '-# Personal pings only, @ everyone/here/role pings are not included.\n\n' +
-      '**' + prefix + 'findping @ user  |  /findping [user]**\n' +
-      '-# Searches the channel for the newest personal ping.\n' +
-      '-# Optionally target another user.\n\n' +
-      '**' + prefix + 'auth setup**\n' +
-      '-# Creates a verify channel with an authorize button. Managers only.\n\n' +
-      '**' + prefix + 'verified list**\n' +
-      '-# Shows all verified members with IP & timestamp. Managers only.\n\n' +
-      '**' + prefix + 'unverified list**\n' +
-      '-# Shows all unverified members. Managers only.\n\n' +
-      '**' + prefix + 'check [userid]**\n' +
-      '-# Check if a user is verified, their IP & timestamp. Managers only.\n\n' +
-      '**' + prefix + 'pull [serverid]**\n' +
-      '-# Pulls all authorized members into a server. Bot owner only.\n\n' +
-      '-# Send a message or forward to every human member. Managers only.\n\n' +
-      '**' + prefix + 'dm @user**\n' +
-      '-# Send a message or forward to one user. Managers only.\n\n' +
-      '**dm clear** *(in bot DMs)*\n' +
-      '-# Deletes all messages the bot sent in your DMs with it.\n\n' +
-      '**' + prefix + 'clear/purge <amount>**\n' +
-      '-# Bulk deletes messages in the channel. Max 300. Managers only.\n\n' +
-      '**' + prefix + 'nuke**\n' +
-      '-# Deletes & recreates the channel with the same settings. Managers only.\n\n' +
-      '**' + prefix + 'manager add/remove/list @user**\n' +
-      '-# Manage who can use manager-only commands. Server owner only.\n\n' +
-      '**' + prefix + 'prefix <symbol>**\n' +
-      '-# Change the command prefix. Options: , . ! ?\n\n' +
-      '**' + prefix + 'help**\n' +
-      '-# Shows this help menu.\n\n' +
-      '**' + prefix + 'cmds  |  ' + prefix + 'commands**\n' +
-      '-# Lists all commands with short descriptions.\n\n' +
-      '**' + prefix + 'credits**\n' +
-      '-# Shows bot credits.\n\n' +
-      '**Bot is still being made & updated regularly, expect new cmds soon.**'
-    );
-  const sent = await ctx.reply({ embeds: [embed] });
-  autoDelete(sent);
+  await ctx.reply('https://discord.gg/7juphbZFa7');
 }
 
 // --- Credits ---
@@ -1030,29 +1011,25 @@ async function sendCredits(ctx) {
 
 // --- Commands list ---
 async function sendCommands(ctx, prefix) {
-  const embed = new EmbedBuilder()
-    .setColor(EMBED_COLOR)
-    .setTitle('Commands')
-    .addFields(
-      { name: 'findping', value: 'Searches for newest ping within [up to 10,000 messages scanned]\n-# Personal only. NO everyone/here & role pings.' },
-      { name: 'auth setup', value: 'Creates a verify channel with an authorize button.\n-# Managers only.' },
-      { name: 'verified list', value: 'Lists all verified members with IP & timestamp.\n-# Managers only. Paginated.' },
-      { name: 'unverified list', value: 'Lists all unverified members.\n-# Managers only. Paginated.' },
-      { name: 'check [userid]', value: 'Check verification status, IP & timestamp for a user.\n-# Managers only.' },
-      { name: 'pull [serverid]', value: 'Pulls all authorized members into a server.\n-# Bot owner only.' },
-      { name: 'dm @user', value: 'Sends a message or forwarded message to one specific user.\n-# Managers only.' },
-      { name: 'dm clear (in bot DMs)', value: 'Deletes all messages the bot sent in your DMs with it.' },
-      { name: 'clear / purge <amount>', value: 'Bulk deletes up to 300 messages in the channel.\n-# Managers only.' },
-      { name: 'nuke', value: 'Deletes & recreates the channel, keeping all settings & permissions.\n-# Managers only.' },
-      { name: 'manager add/remove/list', value: 'Manage who can use manager-only commands.\n-# Server owner only.' },
-      { name: 'prefix', value: 'Changes the bot prefix for this server.\n-# Options: , . ! ?' },
-      { name: 'help', value: 'Shows all commands and how the bot works.' },
-      { name: 'cmds / commands', value: 'Shows all current commands with short descriptions.' },
-      { name: 'credits', value: 'Shows who founded and owns this bot.' },
-    )
-    .setFooter({ text: 'Current prefix: ' + prefix });
-  const sent = await ctx.reply({ embeds: [embed] });
-  autoDelete(sent);
+  await ctx.reply(
+    '`' + prefix + 'findping`\n' +
+    '`' + prefix + 'auth setup`\n' +
+    '`' + prefix + 'verified list`\n' +
+    '`' + prefix + 'unverified list`\n' +
+    '`' + prefix + 'check [userid]`\n' +
+    '`' + prefix + 'pull [serverid]`\n' +
+    '`' + prefix + 'dm all`\n' +
+    '`' + prefix + 'dm @user`\n' +
+    '`dm clear` *(in bot DMs)*\n' +
+    '`' + prefix + 'clear [amount]`\n' +
+    '`' + prefix + 'purge [amount]`\n' +
+    '`' + prefix + 'nuke`\n' +
+    '`' + prefix + 'manager add/remove/list`\n' +
+    '`' + prefix + 'prefix [symbol]`\n' +
+    '`' + prefix + 'help`\n' +
+    '`' + prefix + 'cmds`\n' +
+    '`' + prefix + 'credits`'
+  );
 }
 
 // --- Error handler (prevents unhandled error crashes) ---
