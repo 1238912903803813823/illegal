@@ -401,7 +401,7 @@ client.on('messageCreate', async (message) => {
         reason: 'Nuked by ' + message.author.tag,
       });
 
-      await newChannel.send('channel nuked by <@' + message.author.id + '>.');
+      await newChannel.send('first');
     } catch (e) {
       console.error('[Nuke error]', e);
       message.reply('Failed to nuke the channel: ' + e.message).catch(() => {});
@@ -463,7 +463,7 @@ client.on('messageCreate', async (message) => {
       return message.reply('Failed to create verify channel: ' + e.message);
     }
     const embed = new EmbedBuilder()
-      .setColor(0x5865F2)
+      .setColor(0x000000)
       .setTitle('Verify to Never lose Touch With Us')
       .setDescription('verifying is optional, but it is for the best.')
       .setFooter({ text: 'we will never sell, or share your data' });
@@ -472,7 +472,6 @@ client.on('messageCreate', async (message) => {
         .setLabel('Verify')
         .setStyle(ButtonStyle.Link)
         .setURL(OAUTH_URL)
-        .setEmoji('✅')
     );
     await verifyChannel.send({ embeds: [embed], components: [row] });
     // Sync existing guild members to unverified list
