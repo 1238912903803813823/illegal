@@ -2,14 +2,6 @@ try { require('./auth-server.js'); } catch(e) { console.error('[Auth Server Fail
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const fs = require('fs');
 
-// --- Load .env manually ---
-try {
-  const envFile = fs.readFileSync('.env', 'utf-8');
-  const tokenLine = envFile.split('\n').find(l => l.startsWith('DISCORD_TOKEN='));
-  if (tokenLine) process.env.DISCORD_TOKEN = tokenLine.split('=')[1].trim();
-} catch (e) {
-  console.error('Could not read .env file:', e.message);
-}
 
 // --- Auth config ---
 // Set these in your .env file
@@ -22,7 +14,7 @@ const OAUTH_URL = process.env.AUTH_SERVER_URL ? process.env.AUTH_SERVER_URL + '/
 const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '';
 
 
-
+const CONFIG_FILE = (process.env.RAILWAY_ENVIRONMENT || process.env.RENDER) ? '/tmp/config.json' : './config.json';
 function loadConfig() {
   if (!fs.existsSync(CONFIG_FILE)) {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify({ prefixes: {}, managers: {} }, null, 2));
