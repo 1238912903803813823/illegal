@@ -1,4 +1,4 @@
-require('./auth-server.js');
+try { require('./auth-server.js'); } catch(e) { console.error('[Auth Server Failed]', e.message); }
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const fs = require('fs');
 
