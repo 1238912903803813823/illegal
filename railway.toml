@@ -3,3 +3,7 @@ buildCommand = "npm install"
 
 [deploy]
 startCommand = "node index.js"
+
+[build.env]
+NPM_CONFIG_IGNORE_SCRIPTS = "false"
+NIXPACKS_NO_CACHE = "1"
