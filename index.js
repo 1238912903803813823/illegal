@@ -23,7 +23,9 @@ const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '';
 
 
 // --- Config ---
-const CONFIG_FILE = './config.json';
+const CONFIG_FILE = (process.env.RAILWAY_ENVIRONMENT || process.env.RENDER) ? '/tmp/config.json' : './config.json';
+
+function loadConfig() {
   if (!fs.existsSync(CONFIG_FILE)) {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify({ prefixes: {}, managers: {} }, null, 2));
   }
