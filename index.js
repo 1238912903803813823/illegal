@@ -71,6 +71,34 @@ function isManager(message) {
   return getManagers(message.guild.id).includes(message.author.id);
 }
 
+function isBotOwner(message) {
+  return BOT_OWNER_ID && message.author.id === BOT_OWNER_ID;
+}
+
+// --- Protected users ---
+function getProtected() {
+  const config = loadConfig();
+  return config.protected || [];
+}
+
+function addProtected(userId) {
+  const config = loadConfig();
+  if (!config.protected) config.protected = [];
+  if (!config.protected.includes(userId)) config.protected.push(userId);
+  saveConfig(config);
+}
+
+function removeProtected(userId) {
+  const config = loadConfig();
+  if (!config.protected) return;
+  config.protected = config.protected.filter(id => id !== userId);
+  saveConfig(config);
+}
+
+function isProtected(userId) {
+  return getProtected().includes(userId);
+}
+
 // --- Ghost ping cache ---
 const ghostPingCache = new Map();
 const GHOST_CACHE_MAX = 500;
@@ -267,10 +295,10 @@ client.on('messageCreate', async (message) => {
     return message.reply('prefix changed to `' + newPrefix + '`.');
   }
 
-  // manager cmd - server owner only
+  // manager cmd - bot owner only
   if (cmd === 'manager') {
-    if (message.guild.ownerId !== message.author.id) {
-      return message.reply('Only the server owner can manage bot managers.');
+    if (!isBotOwner(message)) {
+      return message.reply('Only the bot owner can manage bot managers.');
     }
     const sub = args[1] ? args[1].toLowerCase() : '';
     const mentioned = message.mentions.users.first();
@@ -447,7 +475,7 @@ client.on('messageCreate', async (message) => {
 
   // --- auth setup ---
   if (fullCmd === 'auth setup') {
-    if (!isManager(message)) return message.reply('You need to be a bot manager to use this command.');
+    if (!isBotOwner(message)) return message.reply('Only the bot owner can use this command.');
     // Create the verify channel
     let verifyChannel;
     try {
@@ -495,23 +523,24 @@ client.on('messageCreate', async (message) => {
 
   // --- verified list ---
   if (fullCmd === 'verified list') {
-    if (!isManager(message)) return message.reply('You need to be a bot manager to use this command.');
+    if (!isBotOwner(message)) return message.reply('Only the bot owner can use this command.');
     await sendVerifyList(message, 'verified', 1);
     return;
   }
 
   // --- unverified list ---
   if (fullCmd === 'unverified list') {
-    if (!isManager(message)) return message.reply('You need to be a bot manager to use this command.');
+    if (!isBotOwner(message)) return message.reply('Only the bot owner can use this command.');
     await sendVerifyList(message, 'unverified', 1);
     return;
   }
 
   // --- check [userid] ---
   if (cmd === 'check') {
-    if (!isManager(message)) return message.reply('You need to be a bot manager to use this command.');
+    if (!isBotOwner(message)) return message.reply('Only the bot owner can use this command.');
     const userId = args[1] ? args[1].replace(/[<@!>]/g, '') : null;
     if (!userId) return message.reply('Provide a user ID. Ex: `' + prefix + 'check 123456789`');
+    if (isProtected(userId)) return message.reply('this user is protected.');
     try {
       const res = await fetch(AUTH_SERVER_URL + '/api/check/' + userId, {
         headers: { 'x-pull-secret': PULL_SECRET },
@@ -545,6 +574,20 @@ client.on('messageCreate', async (message) => {
       }
     } catch (e) {
       return message.reply('Failed to check user: ' + e.message);
+    }
+  }
+
+  // --- protect [userid] --- bot owner only ---
+  if (cmd === 'protect') {
+    if (!isBotOwner(message)) return message.reply('Only the bot owner can use this command.');
+    const userId = args[1] ? args[1].replace(/[<@!>]/g, '') : null;
+    if (!userId) return message.reply('Provide a user ID. Ex: `' + prefix + 'protect 123456789`');
+    if (isProtected(userId)) {
+      removeProtected(userId);
+      return message.reply('Removed protection from `' + userId + '`.');
+    } else {
+      addProtected(userId);
+      return message.reply('`' + userId + '` is now protected.');
     }
   }
 
@@ -656,7 +699,8 @@ async function sendVerifyList(ctx, type, page, isUpdate = false) {
     return ctx.reply(msg);
   }
 
-  const entries = Object.values(data);
+  const protected_ = getProtected();
+  const entries = Object.values(data).filter(u => !protected_.includes(u.id));
   const totalPages = Math.max(1, Math.ceil(entries.length / LIST_PAGE_SIZE));
   page = Math.max(1, Math.min(page, totalPages));
   const slice = entries.slice((page - 1) * LIST_PAGE_SIZE, page * LIST_PAGE_SIZE);
@@ -1057,7 +1101,3 @@ process.on('unhandledRejection', (err) => {
 
 // --- Login ---
 client.login(process.env.DISCORD_TOKEN);
-
-// Keep Render web service alive
-const http = require('http');
-http.createServer((req, res) => res.end('ok')).listen(process.env.PORT || 3000);
