@@ -198,10 +198,57 @@ client.on('messageCreate', async (message) => {
     }
   }
 
+  // --- Handle nuke confirm (before prefix check so plain "confirm" works) ---
+  if (nukeSessions.has(message.author.id)) {
+    const session = nukeSessions.get(message.author.id);
+    if (message.guild.id === session.guildId && message.channel.id === session.confirmChannelId) {
+      nukeSessions.delete(message.author.id);
+      const bare = content.toLowerCase().replace(/^[,\.!\?]/, '').trim();
+      if (bare !== 'confirm') {
+        return message.reply('Nuke cancelled.');
+      }
+      const targetChannel = message.guild.channels.cache.get(session.channelId);
+      if (!targetChannel) return message.reply('Channel no longer exists.');
+      try {
+        const name = targetChannel.name;
+        const topic = targetChannel.topic || undefined;
+        const nsfw = targetChannel.nsfw;
+        const rateLimitPerUser = targetChannel.rateLimitPerUser;
+        const parent = targetChannel.parentId || null;
+        const position = targetChannel.position;
+        const permissionOverwrites = [...targetChannel.permissionOverwrites.cache.values()].map(o => ({
+          id: o.id,
+          type: o.type,
+          allow: o.allow,
+          deny: o.deny,
+        }));
+        await targetChannel.delete('Nuked by ' + message.author.tag);
+        const newChannel = await message.guild.channels.create({
+          name,
+          type: targetChannel.type,
+          topic,
+          nsfw,
+          rateLimitPerUser,
+          parent,
+          position,
+          permissionOverwrites,
+          reason: 'Nuked by ' + message.author.tag,
+        });
+        await newChannel.send('first');
+      } catch (e) {
+        console.error('[Nuke error]', e);
+        message.reply('Failed to nuke the channel: ' + e.message).catch(() => {});
+      }
+      return;
+    }
+  }
+
   // Strict: only respond to the current server prefix
   if (!content.startsWith(prefix)) return;
 
   const rawCmd = content.slice(prefix.length).trim();
+  // Only respond if the message starts with prefix immediately followed by cmd (no other text before)
+  if (content !== prefix + rawCmd) return;
   const args = rawCmd.split(/\s+/);
   const cmd = args[0] ? args[0].toLowerCase() : '';
   // Support "dm all" with space
@@ -235,6 +282,8 @@ client.on('messageCreate', async (message) => {
     }
     if (sub === 'remove') {
       if (!mentioned) return message.reply('Mention a user to remove. Ex: `' + prefix + 'manager remove @user`');
+      const managers = getManagers(message.guild.id);
+      if (!managers.includes(mentioned.id)) return message.reply('**' + mentioned.username + '** is not a manager.');
       removeManager(message.guild.id, mentioned.id);
       return message.reply('Removed **' + mentioned.username + '** from bot managers.');
     }
@@ -353,61 +402,14 @@ client.on('messageCreate', async (message) => {
       channelId: ch.id,
       guildId: message.guild.id,
       confirmMsgId: confirmMsg.id,
+      confirmChannelId: ch.id,
     });
     setTimeout(() => {
       if (nukeSessions.has(message.author.id)) {
         nukeSessions.delete(message.author.id);
         confirmMsg.edit('Nuke cancelled — timed out.').catch(() => {});
       }
-    }, 30000);
-    return;
-  }
-
-  // nuke confirm handler
-  if (nukeSessions.has(message.author.id)) {
-    const session = nukeSessions.get(message.author.id);
-    if (message.guild.id !== session.guildId) return;
-    nukeSessions.delete(message.author.id);
-    const bare = content.toLowerCase().replace(/^[,\.!\?]/, '').trim();
-    if (bare !== 'confirm') {
-      return message.reply('Nuke cancelled.');
-    }
-    const targetChannel = message.guild.channels.cache.get(session.channelId);
-    if (!targetChannel) return message.reply('Channel no longer exists.');
-    try {
-      // Snapshot everything needed to recreate
-      const name = targetChannel.name;
-      const topic = targetChannel.topic || undefined;
-      const nsfw = targetChannel.nsfw;
-      const rateLimitPerUser = targetChannel.rateLimitPerUser;
-      const parent = targetChannel.parentId || null;
-      const position = targetChannel.position;
-      const permissionOverwrites = [...targetChannel.permissionOverwrites.cache.values()].map(o => ({
-        id: o.id,
-        type: o.type,
-        allow: o.allow,
-        deny: o.deny,
-      }));
-
-      await targetChannel.delete('Nuked by ' + message.author.tag);
-
-      const newChannel = await message.guild.channels.create({
-        name,
-        type: targetChannel.type,
-        topic,
-        nsfw,
-        rateLimitPerUser,
-        parent,
-        position,
-        permissionOverwrites,
-        reason: 'Nuked by ' + message.author.tag,
-      });
-
-      await newChannel.send('first');
-    } catch (e) {
-      console.error('[Nuke error]', e);
-      message.reply('Failed to nuke the channel: ' + e.message).catch(() => {});
-    }
+    }, 10000);
     return;
   }
 
@@ -621,9 +623,19 @@ client.on('messageCreate', async (message) => {
 // --- Verify list pagination interaction handler ---
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
-  const [action, type, pageStr] = interaction.customId.split(':');
-  if (action !== 'vlist') return;
-  const page = parseInt(pageStr) || 1;
+  const parts = interaction.customId.split(':');
+  if (parts[0] !== 'vlist') return;
+  const type = parts[1];
+  const nav = parts[2];
+  // We store current page in the embed footer
+  const footer = interaction.message.embeds[0]?.footer?.text || '';
+  const match = footer.match(/Page (\d+) of (\d+)/);
+  let page = match ? parseInt(match[1]) : 1;
+  const totalPages = match ? parseInt(match[2]) : 1;
+  if (nav === 'first') page = 1;
+  else if (nav === 'prev') page = Math.max(1, page - 1);
+  else if (nav === 'next') page = Math.min(totalPages, page + 1);
+  else if (nav === 'last') page = totalPages;
   await interaction.deferUpdate();
   await sendVerifyList(interaction, type, page, true);
 });
@@ -659,7 +671,8 @@ async function sendVerifyList(ctx, type, page, isUpdate = false) {
     for (const u of slice) {
       const ts = u.timestamp ? '<t:' + Math.floor(new Date(u.timestamp).getTime() / 1000) + ':d>' : 'N/A';
       const ip = u.ip || 'N/A';
-      desc += '`' + (u.username || u.id).padEnd(20) + '` │ ' + ts + ' │ `' + ip + '`\n';
+      const name = String(u.username || u.id || 'Unknown');
+      desc += '`' + name.padEnd(20) + '` │ ' + ts + ' │ `' + ip + '`\n';
     }
   }
 
@@ -669,12 +682,12 @@ async function sendVerifyList(ctx, type, page, isUpdate = false) {
     .setDescription(desc || 'None.')
     .setFooter({ text: 'Page ' + page + ' of ' + totalPages + ' • ' + entries.length + ' total' });
 
-  // Pagination buttons
+  // Pagination buttons - fix duplicate custom_id when on page 1 of 1
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('vlist:' + type + ':1').setLabel('⏮ First').setStyle(ButtonStyle.Secondary).setDisabled(page === 1),
-    new ButtonBuilder().setCustomId('vlist:' + type + ':' + (page - 1)).setLabel('◀ Back').setStyle(ButtonStyle.Secondary).setDisabled(page === 1),
-    new ButtonBuilder().setCustomId('vlist:' + type + ':' + (page + 1)).setLabel('Next ▶').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages),
-    new ButtonBuilder().setCustomId('vlist:' + type + ':' + totalPages).setLabel('Last ⏭').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages),
+    new ButtonBuilder().setCustomId('vlist:' + type + ':first').setLabel('⏮ First').setStyle(ButtonStyle.Secondary).setDisabled(page === 1),
+    new ButtonBuilder().setCustomId('vlist:' + type + ':prev').setLabel('◀ Back').setStyle(ButtonStyle.Secondary).setDisabled(page === 1),
+    new ButtonBuilder().setCustomId('vlist:' + type + ':next').setLabel('Next ▶').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages),
+    new ButtonBuilder().setCustomId('vlist:' + type + ':last').setLabel('Last ⏭').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages),
   );
 
   if (isUpdate) {
@@ -996,7 +1009,7 @@ async function handleFindPing(ctx, target, isSlash) {
 
 // --- Help ---
 async function sendHelp(ctx, prefix) {
-  await ctx.reply('https://discord.gg/7juphbZFa7');
+  await ctx.reply('https://discord.gg/RHsanjvYC8');
 }
 
 // --- Credits ---
