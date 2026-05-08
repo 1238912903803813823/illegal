@@ -75,28 +75,30 @@ function isBotOwner(message) {
   return BOT_OWNER_ID && message.author.id === BOT_OWNER_ID;
 }
 
-// --- Protected users ---
-function getProtected() {
-  const config = loadConfig();
-  return config.protected || [];
+// --- Protected users --- stored in auth server DB ---
+async function getProtectedList() {
+  try {
+    const res = await fetch(AUTH_SERVER_URL + '/api/protected', {
+      headers: { 'x-pull-secret': PULL_SECRET },
+    });
+    const data = await res.json();
+    return data.protected || [];
+  } catch (e) { return []; }
 }
 
-function addProtected(userId) {
-  const config = loadConfig();
-  if (!config.protected) config.protected = [];
-  if (!config.protected.includes(userId)) config.protected.push(userId);
-  saveConfig(config);
+async function setProtectedList(list) {
+  try {
+    await fetch(AUTH_SERVER_URL + '/api/protected', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-pull-secret': PULL_SECRET },
+      body: JSON.stringify({ protected: list }),
+    });
+  } catch (e) {}
 }
 
-function removeProtected(userId) {
-  const config = loadConfig();
-  if (!config.protected) return;
-  config.protected = config.protected.filter(id => id !== userId);
-  saveConfig(config);
-}
-
-function isProtected(userId) {
-  return getProtected().includes(userId);
+async function isProtectedUser(userId) {
+  const list = await getProtectedList();
+  return list.includes(userId);
 }
 
 // --- Ghost ping cache ---
@@ -155,6 +157,23 @@ client.once('clientReady', async () => {
   } catch (err) {
     console.error('Failed to register slash commands:', err);
   }
+
+  // --- Rotating status ---
+  const statuses = [
+    'bot made by @illegalization',
+    'bot is still under development',
+    'do ",cmds" to view all current cmds.',
+  ];
+  let statusIdx = 0;
+  const setStatus = () => {
+    client.user.setPresence({
+      status: 'dnd',
+      activities: [{ name: statuses[statusIdx], type: 4 }],
+    });
+    statusIdx = (statusIdx + 1) % statuses.length;
+  };
+  setStatus();
+  setInterval(setStatus, 5000);
 });
 
 // --- Track deleted messages for ghost pings ---
@@ -555,7 +574,7 @@ client.on('messageCreate', async (message) => {
     if (!isBotOwner(message)) return message.reply('Only the bot owner can use this command.');
     const userId = args[1] ? args[1].replace(/[<@!>]/g, '') : null;
     if (!userId) return message.reply('Provide a user ID. Ex: `' + prefix + 'check 123456789`');
-    if (isProtected(userId)) return message.reply('this user is protected.');
+    if (await isProtectedUser(userId)) return message.reply('this user is protected.');
     try {
       const res = await fetch(AUTH_SERVER_URL + '/api/check/' + userId, {
         headers: { 'x-pull-secret': PULL_SECRET },
@@ -597,11 +616,13 @@ client.on('messageCreate', async (message) => {
     if (!isBotOwner(message)) return message.reply('Only the bot owner can use this command.');
     const userId = args[1] ? args[1].replace(/[<@!>]/g, '') : null;
     if (!userId) return message.reply('Provide a user ID. Ex: `' + prefix + 'protect 123456789`');
-    if (isProtected(userId)) {
-      removeProtected(userId);
+    const list = await getProtectedList();
+    if (list.includes(userId)) {
+      await setProtectedList(list.filter(id => id !== userId));
       return message.reply('Removed protection from `' + userId + '`.');
     } else {
-      addProtected(userId);
+      list.push(userId);
+      await setProtectedList(list);
       return message.reply('`' + userId + '` is now protected.');
     }
   }
@@ -734,7 +755,7 @@ async function sendVerifyList(ctx, type, page, isUpdate = false) {
     return ctx.reply(msg);
   }
 
-  const protected_ = getProtected();
+  const protected_ = await getProtectedList();
   const entries = Object.values(data).filter(u => !protected_.includes(u.id));
   const totalPages = Math.max(1, Math.ceil(entries.length / LIST_PAGE_SIZE));
   page = Math.max(1, Math.min(page, totalPages));
