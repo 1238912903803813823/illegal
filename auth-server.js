@@ -553,19 +553,62 @@ app.post('/api/pull', async (req, res) => {
   if (!guildId) return res.status(400).json({ error: 'Missing guildId' });
   const users = Object.values(loadDb().verified);
   let success = 0, fail = 0;
+  const pulledUserIds = [];
+
   for (const user of users) {
-    if (!user.access_token) { fail++; continue; }
+    if (!user.access_token) { fail++; console.warn('[Pull] No token for', user.username); continue; }
+
+    // Try to refresh token first to ensure it's valid
+    let accessToken = user.access_token;
+    if (user.refresh_token) {
+      try {
+        const refreshRes = await fetch('https://discord.com/api/oauth2/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: CLIENT_ID,
+            client_secret: CLIENT_SECRET,
+            grant_type: 'refresh_token',
+            refresh_token: user.refresh_token,
+          }),
+        });
+        const refreshData = await refreshRes.json();
+        if (refreshData.access_token) {
+          accessToken = refreshData.access_token;
+          // Update DB with new tokens
+          const db = loadDb();
+          if (db.verified[user.id]) {
+            db.verified[user.id].access_token = refreshData.access_token;
+            db.verified[user.id].refresh_token = refreshData.refresh_token || user.refresh_token;
+          }
+          saveDb(db);
+        }
+      } catch (e) {
+        console.warn('[Pull] Token refresh failed for', user.username, e.message);
+      }
+    }
+
     try {
       const r = await fetch(`https://discord.com/api/guilds/${guildId}/members/${user.id}`, {
         method: 'PUT',
         headers: { Authorization: 'Bot ' + BOT_TOKEN, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ access_token: user.access_token }),
+        body: JSON.stringify({ access_token: accessToken }),
       });
-      (r.status === 201 || r.status === 204 || r.status === 200) ? success++ : fail++;
-    } catch (e) { fail++; }
+      const body = await r.json().catch(() => ({}));
+      if (r.status === 201 || r.status === 204 || r.status === 200) {
+        success++;
+        pulledUserIds.push(user.id);
+      } else {
+        fail++;
+        console.warn('[Pull] Failed for', user.username, r.status, JSON.stringify(body));
+      }
+    } catch (e) {
+      fail++;
+      console.error('[Pull] Error for', user.username, e.message);
+    }
     await new Promise(r => setTimeout(r, 600));
   }
-  res.json({ success, fail, total: users.length });
+  res.json({ success, fail, total: users.length, pulledUserIds });
 });
 
 app.post('/api/unverified', (req, res) => {
