@@ -1171,37 +1171,9 @@ process.on('unhandledRejection', (err) => {
   console.error('[Unhandled Rejection]', err);
 });
 
-// --- Internal webhook: called by auth server when user verifies ---
-const webhookApp = require('http').createServer(async (req, res) => {
-  if (req.method === 'POST' && req.url === '/verified-webhook') {
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', async () => {
-      try {
-        const data = JSON.parse(body);
-        if (data.secret !== (process.env.PULL_SECRET || 'illegal-rest-s3cr3t-k3y-change-this-xK9mP2qL8vN4wR7')) {
-          res.writeHead(401); res.end(); return;
-        }
-        const config = loadConfig();
-        if (config.verifiedRoleId && config.verifiedGuildId && data.userId) {
-          try {
-            const guild = await client.guilds.fetch(config.verifiedGuildId);
-            const member = await guild.members.fetch(data.userId).catch(() => null);
-            if (member) await member.roles.add(config.verifiedRoleId);
-          } catch (e) {
-            console.error('[Role assign error]', e.message);
-          }
-        }
-        res.writeHead(200); res.end('ok');
-      } catch (e) {
-        res.writeHead(400); res.end();
-      }
-    });
-  } else {
-    res.writeHead(200); res.end('ok');
-  }
-});
-webhookApp.listen(process.env.PORT || 10000, () => {
+// --- HTTP keepalive for Render ---
+const http = require('http');
+http.createServer((req, res) => res.end('ok')).listen(process.env.PORT || 10000, () => {
   console.log('HTTP keepalive on port ' + (process.env.PORT || 10000));
 });
 
