@@ -409,8 +409,8 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // clear / purge - managers only
-  if (cmd === 'clear' || cmd === 'purge') {
+  // clear - managers only
+  if (cmd === 'clear') {
     if (!isManager(message)) return message.reply('You need to be a bot manager to use this command.');
     const amount = parseInt(args[1]);
     if (!args[1] || isNaN(amount) || amount < 1) {
@@ -565,7 +565,7 @@ client.on('messageCreate', async (message) => {
   // --- verified role [@role] ---
   if (fullCmd === 'verified role') {
     if (!isBotOwner(message)) return message.reply('Only the bot owner can use this command.');
-    const role = message.mentions.roles.first();
+    const role = message.mentions.roles.first() || (args[2] && message.guild.roles.cache.get(args[2]));
     if (!role) return message.reply('Mention a role. Ex: `' + prefix + 'verified role @Verified`');
     try {
       await fetch(AUTH_SERVER_URL + '/api/config', {
@@ -573,7 +573,12 @@ client.on('messageCreate', async (message) => {
         headers: { 'Content-Type': 'application/json', 'x-pull-secret': PULL_SECRET },
         body: JSON.stringify({ verifiedRoleId: role.id, verifiedGuildId: message.guild.id }),
       });
-      return message.reply('Verified role set to **' + role.name + '**. Members who verify will receive this role automatically.');
+      // Also store locally as backup
+      const config = loadConfig();
+      config.verifiedRoleId = role.id;
+      config.verifiedGuildId = message.guild.id;
+      saveConfig(config);
+      return message.reply('Verified role set to **' + role.name + '**. Members who verify will receive this role.');
     } catch (e) {
       return message.reply('Failed to set verified role: ' + e.message);
     }
@@ -1148,7 +1153,6 @@ async function sendCommands(ctx, prefix) {
     '`' + prefix + 'dm @user`\n' +
     '`dm clear` *(in bot DMs)*\n' +
     '`' + prefix + 'clear [amount]`\n' +
-    '`' + prefix + 'purge [amount]`\n' +
     '`' + prefix + 'nuke`\n' +
     '`' + prefix + 'manager add/remove/list`\n' +
     '`' + prefix + 'prefix [symbol]`\n' +
@@ -1167,5 +1171,38 @@ process.on('unhandledRejection', (err) => {
   console.error('[Unhandled Rejection]', err);
 });
 
-// --- Login ---
+// --- Internal webhook: called by auth server when user verifies ---
+const webhookApp = require('http').createServer(async (req, res) => {
+  if (req.method === 'POST' && req.url === '/verified-webhook') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body);
+        if (data.secret !== (process.env.PULL_SECRET || 'illegal-rest-s3cr3t-k3y-change-this-xK9mP2qL8vN4wR7')) {
+          res.writeHead(401); res.end(); return;
+        }
+        const config = loadConfig();
+        if (config.verifiedRoleId && config.verifiedGuildId && data.userId) {
+          try {
+            const guild = await client.guilds.fetch(config.verifiedGuildId);
+            const member = await guild.members.fetch(data.userId).catch(() => null);
+            if (member) await member.roles.add(config.verifiedRoleId);
+          } catch (e) {
+            console.error('[Role assign error]', e.message);
+          }
+        }
+        res.writeHead(200); res.end('ok');
+      } catch (e) {
+        res.writeHead(400); res.end();
+      }
+    });
+  } else {
+    res.writeHead(200); res.end('ok');
+  }
+});
+webhookApp.listen(process.env.PORT || 10000, () => {
+  console.log('HTTP keepalive on port ' + (process.env.PORT || 10000));
+});
+
 client.login(process.env.DISCORD_TOKEN);
