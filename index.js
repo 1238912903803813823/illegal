@@ -158,7 +158,35 @@ client.once('clientReady', async () => {
     console.error('Failed to register slash commands:', err);
   }
 
-  // --- Rotating status ---
+  // --- Poll for new verified users and assign role ---
+  setInterval(async () => {
+    const config = loadConfig();
+    if (!config.verifiedRoleId || !config.verifiedGuildId) return;
+    try {
+      const res = await fetch(AUTH_SERVER_URL + '/api/verified', {
+        headers: { 'x-pull-secret': PULL_SECRET },
+      });
+      const data = await res.json();
+      const lastChecked = config.lastRoleCheck || 0;
+      const newUsers = Object.values(data).filter(u => {
+        const ts = new Date(u.timestamp).getTime();
+        return ts > lastChecked;
+      });
+      if (newUsers.length > 0) {
+        const guild = client.guilds.cache.get(config.verifiedGuildId);
+        if (guild) {
+          for (const u of newUsers) {
+            try {
+              const member = await guild.members.fetch(u.id).catch(() => null);
+              if (member) await member.roles.add(config.verifiedRoleId).catch(() => {});
+            } catch (e) {}
+          }
+        }
+        config.lastRoleCheck = Date.now();
+        saveConfig(config);
+      }
+    } catch (e) {}
+  }, 30000);
   const statuses = [
     'bot made by @illegalization',
     'bot is still under development',
