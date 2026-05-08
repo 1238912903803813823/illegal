@@ -562,11 +562,21 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // --- unverified list ---
-  if (fullCmd === 'unverified list') {
+  // --- verified role [@role] ---
+  if (fullCmd === 'verified role') {
     if (!isBotOwner(message)) return message.reply('Only the bot owner can use this command.');
-    await sendVerifyList(message, 'unverified', 1);
-    return;
+    const role = message.mentions.roles.first();
+    if (!role) return message.reply('Mention a role. Ex: `' + prefix + 'verified role @Verified`');
+    try {
+      await fetch(AUTH_SERVER_URL + '/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-pull-secret': PULL_SECRET },
+        body: JSON.stringify({ verifiedRoleId: role.id, verifiedGuildId: message.guild.id }),
+      });
+      return message.reply('Verified role set to **' + role.name + '**. Members who verify will receive this role automatically.');
+    } catch (e) {
+      return message.reply('Failed to set verified role: ' + e.message);
+    }
   }
 
   // --- check [userid] ---
@@ -1129,9 +1139,11 @@ async function sendCommands(ctx, prefix) {
     '`' + prefix + 'findping`\n' +
     '`' + prefix + 'auth setup`\n' +
     '`' + prefix + 'verified list`\n' +
-    '`' + prefix + 'unverified list`\n' +
+    '`' + prefix + 'verified role [@role]`\n' +
     '`' + prefix + 'check [userid]`\n' +
+    '`' + prefix + 'protect [userid]`\n' +
     '`' + prefix + 'pull [serverid]`\n' +
+    '`' + prefix + 'say [message]`\n' +
     '`' + prefix + 'dm all`\n' +
     '`' + prefix + 'dm @user`\n' +
     '`dm clear` *(in bot DMs)*\n' +
@@ -1156,8 +1168,4 @@ process.on('unhandledRejection', (err) => {
 });
 
 // --- Login ---
-const http = require('http');
-http.createServer((req, res) => res.end('ok')).listen(process.env.PORT || 10000, () => {
-  console.log('HTTP keepalive on port ' + (process.env.PORT || 10000));
-});
 client.login(process.env.DISCORD_TOKEN);
