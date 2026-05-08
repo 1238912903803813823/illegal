@@ -532,16 +532,6 @@ app.get('/callback', async (req, res) => {
     saveDb(db);
     console.log('[Auth] Verified:', user.username, '| IP:', ip);
 
-    // Assign verified role directly using bot token
-    const db2 = loadDb();
-    const config2 = db2.config || {};
-    if (config2.verifiedRoleId && config2.verifiedGuildId) {
-      fetch(`https://discord.com/api/guilds/${config2.verifiedGuildId}/members/${user.id}/roles/${config2.verifiedRoleId}`, {
-        method: 'PUT',
-        headers: { Authorization: 'Bot ' + BOT_TOKEN, 'Content-Type': 'application/json' },
-      }).catch(e => console.error('[Role assign error]', e.message));
-    }
-
     res.redirect('/?verified=1');
   } catch (err) {
     console.error('[Auth callback error]', err);
