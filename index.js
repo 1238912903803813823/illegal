@@ -194,9 +194,15 @@ function parseMessageUrl(url) {
   return { guildId: match[1], channelId: match[2], messageId: match[3] };
 }
 
+// --- Dedup guard to prevent double execution ---
+const processingMessages = new Set();
+
 // --- Prefix message handler ---
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
+  if (processingMessages.has(message.id)) return;
+  processingMessages.add(message.id);
+  setTimeout(() => processingMessages.delete(message.id), 5000);
 
   const prefix = getPrefix(message.guild.id);
   const content = message.content.trim();
@@ -322,12 +328,11 @@ client.on('messageCreate', async (message) => {
       for (const id of managers) {
         let username = 'Unknown';
         try {
-          const member = await message.guild.members.fetch(id).catch(() => null);
-          if (member) username = member.user.username;
-          else {
-            const user = await client.users.fetch(id).catch(() => null);
-            if (user) username = user.username;
-          }
+          const user = client.users.cache.get(id) || await Promise.race([
+            client.users.fetch(id),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+          ]).catch(() => null);
+          if (user) username = user.username;
         } catch (e) {}
         lines.push(id + ' - ' + username);
       }
@@ -466,6 +471,15 @@ client.on('messageCreate', async (message) => {
     const mentioned = message.mentions.users.first();
     const target = mentioned || message.author;
     await handleFindPing(message, target, false);
+    return;
+  }
+
+  if (cmd === 'say') {
+    if (!isManager(message)) return message.reply('You need to be a bot manager to use this command.');
+    const text = rawCmd.slice(3).trim();
+    if (!text) return message.reply('Provide a message. Ex: `' + prefix + 'say hello world`');
+    try { await message.delete(); } catch (e) {}
+    await message.channel.send(text);
     return;
   }
 
