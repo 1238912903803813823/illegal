@@ -23,6 +23,7 @@ const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
 const REDIRECT_URI  = process.env.OAUTH_REDIRECT_URI;
 const BOT_TOKEN     = process.env.DISCORD_TOKEN;
 const PULL_SECRET   = process.env.PULL_SECRET || 'illegal-rest-s3cr3t-k3y-change-this-xK9mP2qL8vN4wR7';
+const BOT_WEBHOOK_URL = process.env.BOT_WEBHOOK_URL || '';
 
 // ---- DB helpers ----
 function loadDb() {
@@ -531,18 +532,13 @@ app.get('/callback', async (req, res) => {
     saveDb(db);
     console.log('[Auth] Verified:', user.username, '| IP:', ip);
 
-    // Assign verified role if configured
-    const db2 = loadDb();
-    const config = db2.config || {};
-    if (config.verifiedRoleId && config.verifiedGuildId) {
-      try {
-        await fetch(`https://discord.com/api/guilds/${config.verifiedGuildId}/members/${user.id}/roles/${config.verifiedRoleId}`, {
-          method: 'PUT',
-          headers: { Authorization: 'Bot ' + BOT_TOKEN, 'Content-Type': 'application/json' },
-        });
-      } catch (e) {
-        console.error('[Auth] Failed to assign role:', e.message);
-      }
+    // Notify bot to assign verified role
+    if (BOT_WEBHOOK_URL) {
+      fetch(BOT_WEBHOOK_URL + '/verified-webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, secret: PULL_SECRET }),
+      }).catch(e => console.error('[Webhook error]', e.message));
     }
 
     res.redirect('/?verified=1');
