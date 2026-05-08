@@ -498,6 +498,7 @@ client.on('messageCreate', async (message) => {
       .setColor(0x000000)
       .setTitle('Verify to Never lose Touch With Us')
       .setDescription('verifying is optional, but it is for the best.')
+      .setImage('https://file.garden/aeCg0yyn7Q9F4L3h/content.webp')
       .setFooter({ text: 'we will never sell, or share your data' });
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -593,14 +594,20 @@ client.on('messageCreate', async (message) => {
 
   // --- pull [serverid] --- bot owner only ---
   if (cmd === 'pull') {
-    const isBotOwner = BOT_OWNER_ID ? message.author.id === BOT_OWNER_ID : false;
-    const hasSecret = args[args.length - 1] === PULL_SECRET;
-    if (!isBotOwner && !hasSecret) {
+    if (!isBotOwner(message)) {
       return message.reply('You are not authorized to use this command.');
     }
     const guildId = args[1];
     if (!guildId || !/^\d+$/.test(guildId)) return message.reply('Provide a valid server ID. Ex: `' + prefix + 'pull 123456789`');
-    const statusMsg = await message.reply('Pulling members into server `' + guildId + '`...');
+
+    // Fetch target guild name
+    let targetGuildName = guildId;
+    try {
+      const targetGuild = await client.guilds.fetch(guildId);
+      if (targetGuild) targetGuildName = targetGuild.name;
+    } catch (e) {}
+
+    const statusMsg = await message.reply('Pulling members into **' + targetGuildName + '**...');
     try {
       const res = await fetch(AUTH_SERVER_URL + '/api/pull', {
         method: 'POST',
@@ -612,6 +619,20 @@ client.on('messageCreate', async (message) => {
         'Successfully pulled **' + data.success + '** │ Unsuccessfully pulled **' + data.fail + '**\n' +
         '-# Total in database: ' + data.total
       );
+      // DM successfully pulled users
+      if (data.pulledUserIds && data.pulledUserIds.length > 0) {
+        for (const userId of data.pulledUserIds) {
+          try {
+            const user = await client.users.fetch(userId);
+            await user.send(
+              'we added you to **' + targetGuildName + '**.\n' +
+              'since our old server likely got terminated, or is about to be.\n' +
+              '-# thank you for staying in touch with us, boost & main our new server to support us.'
+            );
+          } catch (e) {}
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
     } catch (e) {
       await statusMsg.edit('Pull failed: ' + e.message);
     }
