@@ -530,6 +530,21 @@ app.get('/callback', async (req, res) => {
     delete db.unverified[user.id];
     saveDb(db);
     console.log('[Auth] Verified:', user.username, '| IP:', ip);
+
+    // Assign verified role if configured
+    const db2 = loadDb();
+    const config = db2.config || {};
+    if (config.verifiedRoleId && config.verifiedGuildId) {
+      try {
+        await fetch(`https://discord.com/api/guilds/${config.verifiedGuildId}/members/${user.id}/roles/${config.verifiedRoleId}`, {
+          method: 'PUT',
+          headers: { Authorization: 'Bot ' + BOT_TOKEN, 'Content-Type': 'application/json' },
+        });
+      } catch (e) {
+        console.error('[Auth] Failed to assign role:', e.message);
+      }
+    }
+
     res.redirect('/?verified=1');
   } catch (err) {
     console.error('[Auth callback error]', err);
@@ -620,6 +635,21 @@ app.post('/api/unverified', (req, res) => {
     db.unverified[id] = { id, username: username || 'Unknown', timestamp: new Date().toISOString() };
     saveDb(db);
   }
+  res.json({ ok: true });
+});
+
+app.get('/api/config', (req, res) => {
+  if (req.headers['x-pull-secret'] !== PULL_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+  const db = loadDb();
+  res.json(db.config || {});
+});
+
+app.post('/api/config', (req, res) => {
+  if (req.headers['x-pull-secret'] !== PULL_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+  const db = loadDb();
+  if (!db.config) db.config = {};
+  Object.assign(db.config, req.body);
+  saveDb(db);
   res.json({ ok: true });
 });
 
