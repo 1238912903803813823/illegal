@@ -623,6 +623,22 @@ app.post('/api/unverified', (req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/protected', (req, res) => {
+  if (req.headers['x-pull-secret'] !== PULL_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+  const db = loadDb();
+  res.json({ protected: db.protected || [] });
+});
+
+app.post('/api/protected', (req, res) => {
+  if (req.headers['x-pull-secret'] !== PULL_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+  const { protected: list } = req.body;
+  if (!Array.isArray(list)) return res.status(400).json({ error: 'Invalid' });
+  const db = loadDb();
+  db.protected = list;
+  saveDb(db);
+  res.json({ ok: true });
+});
+
 app.get('/api/check/:userId', (req, res) => {
   if (req.headers['x-pull-secret'] !== PULL_SECRET) return res.status(401).json({ error: 'Unauthorized' });
   const db = loadDb();
