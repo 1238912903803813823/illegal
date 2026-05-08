@@ -1157,5 +1157,7 @@ process.on('unhandledRejection', (err) => {
 
 // --- Login ---
 const http = require('http');
-http.createServer((req, res) => res.end('ok')).listen(process.env.PORT || 3000);
+http.createServer((req, res) => res.end('ok')).listen(process.env.PORT || 10000, () => {
+  console.log('HTTP keepalive on port ' + (process.env.PORT || 10000));
+});
 client.login(process.env.DISCORD_TOKEN);
